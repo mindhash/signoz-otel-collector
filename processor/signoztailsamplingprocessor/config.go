@@ -160,7 +160,7 @@ type PolicyCfg struct {
 	Priority int `mapstructure:"priority"`
 
 	// sampling applied when  PolicyFilter matches
-	ProbabilisticCfg
+	ProbabilisticCfg `mapstructure:",squash"`
 
 	// filter to activate policy
 	PolicyFilterCfg `mapstructure:",squash"`

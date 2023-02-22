@@ -53,7 +53,6 @@ type tailSamplingSpanProcessor struct {
 	nextConsumer    consumer.Traces
 	maxNumTraces    uint64
 	policies        []*policy
-	policyGroup     *policy
 	logger          *zap.Logger
 	idToTrace       sync.Map
 	policyTicker    timeutils.TTicker
@@ -70,11 +69,13 @@ const (
 // newTracesProcessor returns a processor.TracesProcessor that will perform tail sampling according to the given
 // configuration.
 func newTracesProcessor(logger *zap.Logger, nextConsumer consumer.Traces, cfg Config) (component.TracesProcessor, error) {
+	fmt.Println("new traceprocessor", cfg)
 	if nextConsumer == nil {
 		return nil, component.ErrNilNextConsumer
 	}
 
 	numDecisionBatches := uint64(cfg.DecisionWait.Seconds())
+	fmt.Println(" numDecisionBatches:", numDecisionBatches)
 	inBatcher, err := idbatcher.New(numDecisionBatches, cfg.ExpectedNewTracesPerSec, uint64(2*runtime.NumCPU()))
 	if err != nil {
 		return nil, err
@@ -99,7 +100,8 @@ func newTracesProcessor(logger *zap.Logger, nextConsumer consumer.Traces, cfg Co
 		}
 		policies = append(policies, p)
 	}
-
+	logger.Debug("loadded policies:", zap.Int("policy count", len(policies)))
+	fmt.Println("len polciy:", policies)
 	tsp := &tailSamplingSpanProcessor{
 		ctx:             ctx,
 		nextConsumer:    nextConsumer,
@@ -147,8 +149,9 @@ func (tsp *tailSamplingSpanProcessor) samplingPolicyOnTick() {
 		trace.FinalDecision = decision
 		trace.ReceivedBatches.MoveTo(allSpans)
 		trace.Unlock()
-
+		fmt.Println(" before sampling :", decision)
 		if decision == sampling.Sampled {
+			fmt.Println(" allSpans:", allSpans)
 			_ = tsp.nextConsumer.ConsumeTraces(policy.ctx, allSpans)
 		}
 	}
@@ -202,11 +205,26 @@ func (tsp *tailSamplingSpanProcessor) makeDecision(id pcommon.TraceID, trace *sa
 		}
 	}
 
+	// check if none of the policies matched
+	if finalDecision == sampling.NoResult {
+		// we default to always sample when no policies match
+		finalDecision = sampling.Sampled
+
+		// this assignment is for reporting purpose only,
+		// no evaluation occurs after this point
+		matchingPolicy = &policy{
+			name:      string(AlwaysSample),
+			evaluator: sampling.NewAlwaysSample(tsp.logger),
+			ctx:       tsp.ctx,
+		}
+	}
+
+	// always sample by default, hence no-result means sampled
 	switch finalDecision {
 	case sampling.Sampled:
 
 		_ = stats.RecordWithTags(
-			p.ctx,
+			matchingPolicy.ctx,
 			[]tag.Mutator{tag.Upsert(tagSampledKey, "true")},
 			statCountTracesSampled.M(int64(1)),
 		)
@@ -214,7 +232,7 @@ func (tsp *tailSamplingSpanProcessor) makeDecision(id pcommon.TraceID, trace *sa
 
 	case sampling.NotSampled:
 		_ = stats.RecordWithTags(
-			p.ctx,
+			matchingPolicy.ctx,
 			[]tag.Mutator{tag.Upsert(tagSampledKey, "false")},
 			statCountTracesSampled.M(int64(1)),
 		)
