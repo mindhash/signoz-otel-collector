@@ -11,7 +11,11 @@ import (
 
 func TestNopClientWithCollector(t *testing.T) {
 	coll := signozcol.New(signozcol.WrappedCollectorSettings{
+<<<<<<< HEAD
 		ConfigPaths: []string{"testdata/config.yaml"},
+=======
+		ConfigPaths: []string{"testdata/simple/config.yaml"},
+>>>>>>> feat/tail-final
 		Version:     "0.0.1",
 		Desc:        "test",
 		LoggingOpts: []zap.Option{zap.AddStacktrace(zap.ErrorLevel)},
